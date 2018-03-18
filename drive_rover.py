@@ -49,7 +49,7 @@ class RoverState():
         self.steer = 0 # Current steering angle
         self.throttle = 0 # Current throttle value
         self.brake = 0 # Current brake value
-        self.the_rock = 0 # If Rover can see the sample, store it's position here
+        self.the_rock = -1 # If Rover can see the sample, store it's position here
         self.nav_angles = None # Angles of navigable terrain pixels
         self.nav_dists = None # Distances of navigable terrain pixels
         self.ground_truth = ground_truth_3d # Ground truth worldmap
@@ -64,7 +64,7 @@ class RoverState():
         # get creative in adding new fields or modifying these!
         self.stop_forward = 50 # Threshold to initiate stopping
         self.go_forward = 500 # Threshold to go forward again
-        self.max_vel = 1 # Maximum velocity (meters/second)
+        self.max_vel = 1.5 # Maximum velocity (meters/second)
         # Image output from perception step
         # Update this image to display your intermediate analysis steps
         # on screen in autonomous mode
@@ -75,7 +75,7 @@ class RoverState():
         # obstacles and rock samples
         self.worldmap = np.zeros((200, 200, 3), dtype=np.float) 
         # Contains world positions of the visited areas
-        self.visited_map = np.zeros((200, 200, 3), dtype=np.float) 
+        self.visited_map = np.zeros((200, 200), dtype=np.float) 
         self.samples_pos = None # To store the actual sample positions
         self.samples_to_find = 0 # To store the initial count of samples
         self.samples_located = 0 # To store number of samples located on map

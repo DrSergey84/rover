@@ -3,14 +3,8 @@ import numpy as np
 # Make a decision about the steering angle here
 def calculate_steer(Rover):
     # most recently visited points
-    explore_angle = 0#np.mean(Rover.nav_angles[1])
-    terrain_angle = np.mean(Rover.nav_angles[0])
-    #Go to the unexplored area, but only following the terrain path
-    #thus the steering angle needs to be clipped against the terrain's min/max
-    min_clip = np.min(Rover.nav_angles[0]) + (terrain_angle - np.min(Rover.nav_angles[0])) / 2
-    max_clip = terrain_angle + (np.max(Rover.nav_angles[0]) - terrain_angle) / 2
-    angle = np.clip(explore_angle + terrain_angle, min_clip, max_clip)
-    angle = np.clip(angle* 180/np.pi, -15, +15)
+    terrain_angle = np.mean(Rover.nav_angles)
+    angle = np.clip(terrain_angle* 180/np.pi, -15, +15)
     return angle
 
 
@@ -28,7 +22,7 @@ def decision_step(Rover):
         # Check for Rover.mode status
         if Rover.mode == 'forward': 
             # Check the extent of navigable terrain
-            if len(Rover.nav_angles[0]) >= Rover.stop_forward:  
+            if len(Rover.nav_angles) >= Rover.stop_forward:  
                 # If near sample keep minimum speed 
                 if (Rover.near_sample):
                     if (Rover.vel <= 0.2):
@@ -60,14 +54,13 @@ def decision_step(Rover):
                     Rover.stuck_control[ pos ] += 1
 
                 # Reduce the speed to not miss the rock
-                if (Rover.the_rock):
+                if (Rover.the_rock == 1):
                     Rover.stuck_control[:,:] = 0
                     Rover.mode = 'near_sample'
                     Rover.throttle = 0
-                    Rover.brake = Rover.brake_set
 
             # If there's a lack of navigable terrain pixels then go to 'stop' mode
-            elif len(Rover.nav_angles[0]) < Rover.stop_forward:
+            elif len(Rover.nav_angles) < Rover.stop_forward:
                 # Set mode to "stop" and hit the brakes!
                 Rover.throttle = 0
                 # Set brake to stored brake value
@@ -76,7 +69,7 @@ def decision_step(Rover):
                 # Reduce the speed to not miss the rock
                 # the samples are normaly located near the mountains which
                 # can easily hit this stop_forward condition
-                if (Rover.the_rock):
+                if (Rover.the_rock == 1):
                     Rover.stuck_control[:,:] = 0
                     Rover.mode = 'near_sample'
                 else:
@@ -92,14 +85,14 @@ def decision_step(Rover):
             # If we're not moving (vel < 0.2) then do something else
             elif Rover.vel <= 0.2:
                 # Now we're stopped and we have vision data to see if there's a path forward
-                if len(Rover.nav_angles[0]) < Rover.go_forward:
+                if len(Rover.nav_angles) < Rover.go_forward:
                     Rover.throttle = 0
                     # Release the brake to allow turning
                     Rover.brake = 0
                     # Turn range is +/- 15 degrees, when stopped the next line will induce 4-wheel turning
                     Rover.steer = -15
                 # If we're stopped but see sufficient navigable terrain in front then go!
-                if len(Rover.nav_angles[0]) >= Rover.go_forward:
+                if len(Rover.nav_angles) >= Rover.go_forward:
                     # Set throttle back to stored value
                     Rover.throttle = Rover.throttle_set
                     # Set steer to mean angle
@@ -141,18 +134,16 @@ def decision_step(Rover):
         #Try to pick up the sample
         elif Rover.mode == 'near_sample':
             # Reduce the speed
-            if Rover.vel > 0.2 or Rover.near_sample:
+            if Rover.vel > 0.4 or Rover.near_sample:
                 Rover.throttle = 0
-                Rover.brake = Rover.brake_set
-            #Reset the state if the sample is being picked up
-            elif Rover.picking_up:
-               Rover.the_rock = 0
-            elif (Rover.the_rock):
+                Rover.brake = 1
+
+            elif (Rover.the_rock == 1):
                 Rover.brake = 0
                 # Set steering
 		# Move towards the average direction of the terrain and opposite from the
                 # most recently visited points
-                Rover.steer = np.clip(np.mean(Rover.nav_angles[0] * 180/np.pi), -15, 15)
+                Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
                 # TODO: This can be done better by controlling the distance to the rock sample
                 Rover.throttle = 0.1
             #The rock is not visible anymore or has been picked up
@@ -171,6 +162,7 @@ def decision_step(Rover):
     # If in a state where want to pickup a rock send pickup command
     if Rover.near_sample and Rover.vel == 0 and not Rover.picking_up:
         Rover.send_pickup = True
+        Rover.the_rock = -1
     
     return Rover
 

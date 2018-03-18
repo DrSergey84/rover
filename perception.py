@@ -3,7 +3,7 @@ import cv2
 
 # Identify pixels above the threshold
 # Threshold of RGB > 160 does a nice job of identifying ground pixels only
-def color_thresh(img, rgb_thresh_ground=(160, 160, 160), rgb_thresh_obstacle=(70, 70, 70)):
+def color_thresh(img, rgb_thresh_ground=(160, 160, 160), rgb_thresh_obstacle=(60, 60, 60)):
     # Create an array of zeros same xy size as img, but single channel
     thresh = np.zeros_like(img[:,:,0])
     # Require that each pixel be above all three threshold values in RGB
@@ -13,9 +13,9 @@ def color_thresh(img, rgb_thresh_ground=(160, 160, 160), rgb_thresh_obstacle=(70
                 & (img[:,:,1] > rgb_thresh_ground[1]) \
                 & (img[:,:,2] > rgb_thresh_ground[2])
 
-    obstacles_thresh = terrain_thresh == False# (img[:,:,0] < rgb_thresh_obstacle[0]) \
-               # & (img[:,:,1] < rgb_thresh_obstacle[1]) \
-               # & (img[:,:,2] < rgb_thresh_obstacle[2])
+    obstacles_thresh = (img[:,:,0] < rgb_thresh_obstacle[0]) \
+                & (img[:,:,1] < rgb_thresh_obstacle[1]) \
+                & (img[:,:,2] < rgb_thresh_obstacle[2])
                  
     # The rocks are yellow (#FFFF00), or almost yellow...
     rocks_thresh = (img[:,:,0] >= 120) \
@@ -92,7 +92,7 @@ def world_to_pix(x_world, y_world, xpos, ypos, yaw, image_size, scale):
 
     # Apply rotation
     xpix_rot, ypix_rot = rotate_pix(translate_x, translate_y, yaw)
-    # Perform rotation, translation and cVlipping all at once
+    # Perform rotation, translation and clipping all at once
     x_pix = np.clip(np.int_(xpix_rot), 0, image_size[0] - 1)
     y_pix = np.clip(np.int_(ypix_rot), 0, image_size[1] - 1)
     # Return the result
@@ -137,9 +137,14 @@ def perception_step(Rover):
    
     # Record the world position of the sample
     yellow_pix = np.sum(threshed == 1)
-    if (not Rover.picking_up and yellow_pix > 7 and Rover.vel > 0.2):
-        # it is useful to preserve distance as well to control the speed
-        # of rock approaching by the Rover
+
+    #This is a special state to recover from the sample picking up
+    #By some reasons Rover keeps receiving old/obsolete image from the camera
+    # for some time after the sample has been picked up
+    if ( Rover.the_rock == -1 and yellow_pix == 0 and Rover.vel > 0.2 ):
+        Rover.the_rock = 0
+
+    if (Rover.the_rock == 0 and yellow_pix >= 5):
         Rover.the_rock = 1
 
     # 6) Convert rover-centric pixel values to world coordinates
@@ -157,15 +162,31 @@ def perception_step(Rover):
                                 ypos, yaw, 
                                 Rover.worldmap.shape[0], 10) 
 
-    #Get positions that have been visited recently
-    visited_mean_time = np.mean(Rover.visited_map)
-    explored = Rover.visited_map[Rover.visited_map >= visited_mean_time]
-    #Convert those long-ago visited points into the rover-centric coordinates
-    x_world = explored[0]
-    y_world = explored[1]
+    #Get positions that have been visited recently, 
+    #and tell the Rover to avoid toing that way
+    explored = (Rover.visited_map > 0)
+    explored[explored] = 1
+    
+    #Convert those recently visited points into the rover-centric coordinates
+    x_world, y_world = explored.nonzero()
     explored_xpix, explored_ypix = world_to_pix(x_world, y_world,
                                    xpos, ypos, -yaw, image.shape, 10)
 
+    # Take the median among the visible navigatable point timestamps
+    # A coarse-grained approach here, not all the (x,y) pairs can be
+    # present in both the navigatable area and the explored area maps
+    x_int = np.int_(np.intersect1d(explored_xpix, xpix_t))
+    y_int = np.int_(np.intersect1d(explored_ypix, ypix_t))
+    pair = list([])
+    if ( x_int.size > 0 and y_int.size > 0):
+      pair = [(i,j) for i in range(x_int.size) for j in range(y_int.size)]
+
+    #Rover won't consider the most recently visited points
+    for (i,j) in pair:
+       if (i < xpix_t.size and j < ypix_t.size):
+         xpix_t[i] = 0
+         ypix_t[j] = 0
+       
     #Record xpos, ypos as visited by the Rover and record when it was visited last time
     Rover.visited_map[int(xpos), int(ypos)] = Rover.total_time
     # 7) Update Rover worldmap (to be displayed on right side of screen)
@@ -174,19 +195,17 @@ def perception_step(Rover):
     Rover.worldmap[navigable_y_world, navigable_x_world, 2] += 1
     # 8) Convert rover-centric pixel positions to polar coordinates
     dist, angles = (-1, -1)
-    explored_dist = 0
-    explored_angles = 0
     #if there is a rock, move closer to it, otherwise follow terrain's mean
-    if (not Rover.the_rock):
+    if (Rover.the_rock != 1):
         dist, angles = to_polar_coords(xpix_t, ypix_t)
-        explored_dist, explored_angles = to_polar_coords(explored_xpix, explored_ypix)
     elif (yellow_pix):
         dist, angles = to_polar_coords(xpix_r, ypix_r)
         Rover.prev_angles_to_sample = angles
-    else: #sometimes we don;t capture green pixels in the camera, this is the workaround
+    else: 
+        #Sometimes I don't threshold yellow pixels in the camera, while the sample is there this is the workaround
         angles = Rover.prev_angles_to_sample
     # Update Rover pixel distances and angles
-    Rover.nav_dists = (dist, explored_dist)
-    Rover.nav_angles = (angles, -explored_angles)
+    Rover.nav_dists = dist
+    Rover.nav_angles = angles
      
     return Rover
